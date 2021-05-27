@@ -1,5 +1,5 @@
-#ifndef DLA34_COMMON_H_
-#define DLA34_COMMON_H_
+#ifndef YOLOV5_COMMON_H_
+#define YOLOV5_COMMON_H_
 
 #include <fstream>
 #include <map>
@@ -9,10 +9,6 @@
 #include <dirent.h>
 #include "NvInfer.h"
 
-#define INPUT_H 224
-#define INPUT_W 224
-#define CLASS_NUM 80
-#define MAX_OUTPUT_BBOX_COUNT 1000
 
 #define CHECK(status) \
     do\
@@ -29,42 +25,42 @@ using namespace nvinfer1;
 
 cv::Mat preprocess_img(cv::Mat& img) {
     int w, h, x, y;
-    float r_w = INPUT_W / (img.cols*1.0);
-    float r_h = INPUT_H / (img.rows*1.0);
+    float r_w = Yolo::INPUT_W / (img.cols*1.0);
+    float r_h = Yolo::INPUT_H / (img.rows*1.0);
     if (r_h > r_w) {
-        w = INPUT_W;
+        w = Yolo::INPUT_W;
         h = r_w * img.rows;
         x = 0;
-        y = (INPUT_H - h) / 2;
+        y = (Yolo::INPUT_H - h) / 2;
     } else {
         w = r_h * img.cols;
-        h = INPUT_H;
-        x = (INPUT_W - w) / 2;
+        h = Yolo::INPUT_H;
+        x = (Yolo::INPUT_W - w) / 2;
         y = 0;
     }
     cv::Mat re(h, w, CV_8UC3);
     cv::resize(img, re, re.size(), 0, 0, cv::INTER_LINEAR);
-    cv::Mat out(INPUT_H, INPUT_W, CV_8UC3, cv::Scalar(128, 128, 128));
+    cv::Mat out(Yolo::INPUT_H, Yolo::INPUT_W, CV_8UC3, cv::Scalar(128, 128, 128));
     re.copyTo(out(cv::Rect(x, y, re.cols, re.rows)));
     return out;
 }
 
 cv::Rect get_rect(cv::Mat& img, float bbox[4]) {
     int l, r, t, b;
-    float r_w = INPUT_W / (img.cols * 1.0);
-    float r_h = INPUT_H / (img.rows * 1.0);
+    float r_w = Yolo::INPUT_W / (img.cols * 1.0);
+    float r_h = Yolo::INPUT_H / (img.rows * 1.0);
     if (r_h > r_w) {
         l = bbox[0] - bbox[2] / 2.f;
         r = bbox[0] + bbox[2] / 2.f;
-        t = bbox[1] - bbox[3] / 2.f - (INPUT_H - r_w * img.rows) / 2;
-        b = bbox[1] + bbox[3] / 2.f - (INPUT_H - r_w * img.rows) / 2;
+        t = bbox[1] - bbox[3] / 2.f - (Yolo::INPUT_H - r_w * img.rows) / 2;
+        b = bbox[1] + bbox[3] / 2.f - (Yolo::INPUT_H - r_w * img.rows) / 2;
         l = l / r_w;
         r = r / r_w;
         t = t / r_w;
         b = b / r_w;
     } else {
-        l = bbox[0] - bbox[2] / 2.f - (INPUT_W - r_h * img.cols) / 2;
-        r = bbox[0] + bbox[2] / 2.f - (INPUT_W - r_h * img.cols) / 2;
+        l = bbox[0] - bbox[2] / 2.f - (Yolo::INPUT_W - r_h * img.cols) / 2;
+        r = bbox[0] + bbox[2] / 2.f - (Yolo::INPUT_W - r_h * img.cols) / 2;
         t = bbox[1] - bbox[3] / 2.f;
         b = bbox[1] + bbox[3] / 2.f;
         l = l / r_h;
@@ -209,16 +205,15 @@ ILayer* convBlock(INetworkDefinition *network, std::map<std::string, Weights>& w
     return relu;
 }
 
-IScaleLayer* basicBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input, int outch, int conv1s, std::string lname) {
+IActivationLayer* basicBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input, int outch, int conv1s, std::string lname) {
     Weights emptywts{DataType::kFLOAT, nullptr, 0};
 
     IConvolutionLayer* conv1 = network->addConvolutionNd(input, outch, DimsHW{3, 3}, weightMap[lname + ".conv1.weight"], emptywts);
     assert(conv1);
-    conv1->setDilationNd(DimsHW{1, 1});
-    conv1->setNbGroups(1);
-    conv1->setPaddingNd(DimsHW{1, 1});
     conv1->setStrideNd(DimsHW{conv1s, conv1s});
-    
+    conv1->setPaddingNd(DimsHW{1, 1});
+    conv1->setNbGroups(1);
+
     IScaleLayer* bn1 = addBatchNorm2d(network, weightMap, *conv1->getOutput(0), lname + ".bn1", 1e-5);
 
     IActivationLayer* relu1 = network->addActivation(*bn1->getOutput(0), ActivationType::kRELU);
@@ -226,24 +221,22 @@ IScaleLayer* basicBlock(INetworkDefinition *network, std::map<std::string, Weigh
 
     IConvolutionLayer* conv2 = network->addConvolutionNd(*relu1->getOutput(0), outch, DimsHW{3, 3}, weightMap[lname + ".conv2.weight"], emptywts);
     assert(conv2);
-    conv2->setDilationNd(DimsHW{1, 1});
-    conv2->setNbGroups(1);
-    conv2->setPaddingNd(DimsHW{1, 1});
     conv2->setStrideNd(DimsHW{1, 1});
-    
+    conv2->setPaddingNd(DimsHW{1, 1});
+    conv2->setNbGroups(1);
+
     IScaleLayer* bn2 = addBatchNorm2d(network, weightMap, *conv2->getOutput(0), lname + ".bn2", 1e-5);
+
     return bn2;
 }
 
-IScaleLayer* project(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input, int outch, std::string lname) {
+IActivationLayer* project(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input, int outch, std::string lname) {
     Weights emptywts{DataType::kFLOAT, nullptr, 0};
     IConvolutionLayer* conv1 = network->addConvolutionNd(input, outch, DimsHW{1, 1}, weightMap[lname + ".0.weight"], emptywts);
     assert(conv1);
-    conv1->setDilationNd(DimsHW{1, 1});
-    conv1->setNbGroups(1);
-    conv1->setPaddingNd(DimsHW{0, 0});
     conv1->setStrideNd(DimsHW{1, 1});
-    
+    conv1->setPaddingNd(DimsHW{0, 0});
+    conv1->setNbGroups(1);
     IScaleLayer* bn1 = addBatchNorm2d(network, weightMap, *conv1->getOutput(0), lname + ".1", 1e-5);
     return bn1;
 }
@@ -256,75 +249,17 @@ ILayer* root(INetworkDefinition *network, std::map<std::string, Weights>& weight
     return conv;
 }
 
-
-IPluginV2Layer* addDCNv2Layer(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* t0, ITensor* t1, ITensor* t2)
-{
-    IPluginCreator* creator = getPluginRegistry()->getPluginCreator("DCNv2_TRT", "1");
-
-    // std::vector<float> anchors_yolo = getAnchors(weightMap);
-    PluginField pluginMultidata[16];
-
-    int NetData[4];
-    NetData[0] = CLASS_NUM;
-    NetData[1] = INPUT_W;
-    NetData[2] = INPUT_H;
-    NetData[3] = MAX_OUTPUT_BBOX_COUNT;
-    pluginMultidata[0].data = NetData;
-    pluginMultidata[0].length = 3;
-    pluginMultidata[0].name = "netdata";
-    pluginMultidata[0].type = PluginFieldType::kINT32;
-    int scale[3] = { 8, 16, 32 };
-    int plugindata[3][8];
-    std::string names[3];
-    for (int k = 1; k < 4; k++)
-    {
-        plugindata[k - 1][0] = INPUT_W / scale[k - 1];
-        plugindata[k - 1][1] = INPUT_H / scale[k - 1];
-        for (int i = 2; i < 8; i++)
-        {
-            // plugindata[k - 1][i] = int(anchors_yolo[(k - 1) * 6 + i - 2]);
-        }
-        pluginMultidata[k].data = plugindata[k - 1];
-        pluginMultidata[k].length = 8;
-        names[k - 1] = "yolodata" + std::to_string(k);
-        pluginMultidata[k].name = names[k - 1].c_str();
-        pluginMultidata[k].type = PluginFieldType::kFLOAT32;
-    }
-
-    PluginFieldCollection pluginData;
-    pluginData.nbFields = 8;
-    pluginData.fields = pluginMultidata;
-    IPluginV2 *pluginObj = creator->createPlugin("DCNv2_TRT", &pluginData);
-    ITensor* inputTensors_dcn[] = { t0, t1, t2 };
-    auto dcn = network->addPluginV2(inputTensors_dcn, 3, *pluginObj);
-    return dcn;
-}
-
-
-
-
-ILayer* dcn(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* input, int outch, std::string lname) {
+ILayer* dcn(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ILayer& inputlayer, int outch, std::string lname) {
     Weights emptywts{DataType::kFLOAT, nullptr, 0};
-    IConvolutionLayer* conv1 = network->addConvolutionNd(*input, outch, DimsHW{3, 3}, weightMap[lname + ".conv.conv_offset_mask.weight"], weightMap[lname + ".conv.conv_offset_mask.bias"]);
-    assert(conv1);
-    conv1->setDilationNd(DimsHW{1, 1});
-    conv1->setNbGroups(1);
-    conv1->setPaddingNd(DimsHW{1, 1});
+    IConvolutionLayer* conv1 = network->addConvolutionNd(input->getOutput(0), outch, DimsHW{3, 3}, weightMap[lname + ".conv.conv_offset_mask.weight"], weightMap[lname + ".conv.conv_offset_mask.bias"]);
     conv1->setStrideNd(DimsHW{1, 1});
-    
-    // {1, 27, H, W}
-    Dims _dims3 = conv1->getOutput(0)->getDimensions();
-    ISliceLayer *s1 = network->addSlice(*conv1->getOutput(0), Dims3{ 0, 0, 0 }, Dims3{ 9, _dims3.d[1], _dims3.d[2] }, Dims3{ 1, 1, 1 });
-    ISliceLayer *s2 = network->addSlice(*conv1->getOutput(0), Dims3{ 9, 0, 0 }, Dims3{ 9, _dims3.d[1], _dims3.d[2] }, Dims3{ 1, 1, 1 });
-    ISliceLayer *mask = network->addSlice(*conv1->getOutput(0), Dims3{ 18, 0, 0 }, Dims3{ 9, _dims3.d[1], _dims3.d[2] }, Dims3{ 1, 1, 1 });
-
-    ITensor* inputTensors[] = { s1->getOutput(0), s2->getOutput(0) };
-    IConcatenationLayer* offset = network->addConcatenation(inputTensors, 2);
-    offset->setAxis(1);
-
-    auto sig = network->addActivation(*mask->getOutput(0), ActivationType::kSIGMOID);
-    auto dcn1 = addDCNv2Layer(network, weightMap, input, offset->getOutput(0), sig->getOutput(0));
-    IScaleLayer* bn1 = addBatchNorm2d(network, weightMap, *dcn1->getOutput(0), lname + ".actf.0", 1e-5);
+    conv1->setPaddingNd(DimsHW{1, 1});
+    conv1->setNbGroups(1);
+    ISliceLayer *s1 = network->addSlice(*conv1->getOutput(0), Dims3{ 0, 0, 0 }, Dims3{ inch, Yolo::INPUT_H / 2, Yolo::INPUT_W / 2 }, Dims3{ 1, 2, 2 });
+    ISliceLayer *s2 = network->addSlice(*conv1->getOutput(0), Dims3{ 0, 0, 0 }, Dims3{ inch, Yolo::INPUT_H / 2, Yolo::INPUT_W / 2 }, Dims3{ 1, 2, 2 });
+    auto sig = network->addActivation(*s2->getOutput(0), ActivationType::kSIGMOID);
+    auto dcn1 = network->addDCNv2Layer(network, weightMap, inputlayer, s1, sig);
+    IScaleLayer* bn1 = addBatchNorm2d(network, weightMap, dcn1->getOutput(0), lname + ".actf.0", 1e-5);
     auto relu = network->addActivation(*bn1->getOutput(0), ActivationType::kRELU);
     assert(relu);
     return relu;
@@ -362,14 +297,14 @@ ILayer* level2(INetworkDefinition *network, std::map<std::string, Weights>& weig
     pool1->setStrideNd(DimsHW{2, 2});
     auto pro1 = project(network, weightMap, *pool1->getOutput(0), oc1, ".project");
 
-    auto ew1 = network->addElementWise(*block1->getOutput(0), *pro1->getOutput(0), ElementWiseOperation::kSUM);
+    auto ew1 = network->addElementWise(block1->getOutput(0), pro1->getOutput(0), ElementWiseOperation::kSUM);
 
-    IActivationLayer* relu1 = network->addActivation(*ew1->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu1 = network->addActivation(ew1->getOutput(0), ActivationType::kRELU);
 
     auto block2 = basicBlock(network, weightMap, *relu1->getOutput(0), oc2, 1, ".tree2");
-    auto ew2 = network->addElementWise(*relu1->getOutput(0), *block2->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu2 = network->addActivation(*ew2->getOutput(0), ActivationType::kRELU);
-    ITensor* inputTensors[] = { relu1->getOutput(0), relu2->getOutput(0) };
+    auto ew2 = network->addElementWise(*relu1->getOutput(0), block2->getOutput(0), ElementWiseOperation::kSUM);
+    IActivationLayer* relu2 = network->addActivation(ew2->getOutput(0), ActivationType::kRELU);
+    ITensor* inputTensors[] = { *relu1->getOutput(0), *relu2->getOutput(0) };
     auto relu3 = root(network, weightMap, inputTensors, 2, oc3, lname);
     assert(relu3);
     return relu3;
@@ -390,23 +325,23 @@ ILayer* level3(INetworkDefinition *network, std::map<std::string, Weights>& weig
 
     auto block2 = basicBlock(network, weightMap, *relu1->getOutput(0), oc2, 1, ".tree1.tree2");
     auto ew2 = network->addElementWise(*relu1->getOutput(0), block2->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu2 = network->addActivation(*ew2->getOutput(0), ActivationType::kRELU);
-    ITensor* inputTensors[] = { *relu1->getOutput(0), relu2->getOutput(0) };
+    IActivationLayer* relu2 = network->addActivation(ew2->getOutput(0), ActivationType::kRELU);
+    ITensor* inputTensors[] = { *relu1->getOutput(0), *relu2->getOutput(0) };
     auto relu3 = root(network, weightMap, inputTensors, 2, oc3, ".tree1");
     assert(relu3);
 
     auto block3 = basicBlock(network, weightMap, relu3->getOutput(0), oc1, 1, ".tree2.tree1");
     auto ew3 = network->addElementWise(block3->getOutput(0), relu3->getOutput(0), ElementWiseOperation::kSUM);
 
-    IActivationLayer* relu4 = network->addActivation(*ew3->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu4 = network->addActivation(ew3->getOutput(0), ActivationType::kRELU);
 
     auto block4 = basicBlock(network, weightMap, *relu4->getOutput(0), oc2, 1, ".tree2.tree2");
     auto ew4 = network->addElementWise(*relu4->getOutput(0), block4->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu5 = network->addActivation(*ew4->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu5 = network->addActivation(ew4->getOutput(0), ActivationType::kRELU);
 
     IPoolingLayer *pool2 = network->addPoolingNd(input, PoolingType::kMAX, DimsHW{2, 2});
     pool2->setStrideNd(DimsHW{2, 2});
-    ITensor* inputTensors[] = { pool2->getOutput(0), relu3->getOutput(0), relu4->getOutput(0), relu5->getOutput(0) };
+    ITensor* inputTensors[] = { *pool2->getOutput(0), relu3->getOutput(0), *relu4->getOutput(0), *relu5->getOutput(0) };
     auto relu6 = root(network, weightMap, inputTensors, 4, oc3, ".tree2");
     assert(relu6);
 
@@ -427,23 +362,23 @@ ILayer* level4(INetworkDefinition *network, std::map<std::string, Weights>& weig
 
     auto block2 = basicBlock(network, weightMap, *relu1->getOutput(0), oc2, 1, ".tree1.tree2");
     auto ew2 = network->addElementWise(*relu1->getOutput(0), block2->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu2 = network->addActivation(*ew2->getOutput(0), ActivationType::kRELU);
-    ITensor* inputTensors[] = { *relu1->getOutput(0), relu2->getOutput(0) };
+    IActivationLayer* relu2 = network->addActivation(ew2->getOutput(0), ActivationType::kRELU);
+    ITensor* inputTensors[] = { *relu1->getOutput(0), *relu2->getOutput(0) };
     auto relu3 = root(network, weightMap, inputTensors, 2, oc3, ".tree1");
     assert(relu3);
 
     auto block3 = basicBlock(network, weightMap, relu3->getOutput(0), oc1, 1, ".tree2.tree1");
     auto ew3 = network->addElementWise(block3->getOutput(0), relu3->getOutput(0), ElementWiseOperation::kSUM);
 
-    IActivationLayer* relu4 = network->addActivation(*ew3->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu4 = network->addActivation(ew3->getOutput(0), ActivationType::kRELU);
 
     auto block4 = basicBlock(network, weightMap, *relu4->getOutput(0), oc2, 1, ".tree2.tree2");
     auto ew4 = network->addElementWise(*relu4->getOutput(0), block4->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu5 = network->addActivation(*ew4->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu5 = network->addActivation(ew4->getOutput(0), ActivationType::kRELU);
 
     IPoolingLayer *pool2 = network->addPoolingNd(input, PoolingType::kMAX, DimsHW{2, 2});
     pool2->setStrideNd(DimsHW{2, 2});
-    ITensor* inputTensors[] = { pool2->getOutput(0), relu3->getOutput(0), relu4->getOutput(0), relu5->getOutput(0) };
+    ITensor* inputTensors[] = { *pool2->getOutput(0), relu3->getOutput(0), *relu4->getOutput(0), *relu5->getOutput(0) };
     auto relu6 = root(network, weightMap, inputTensors, 4, oc3, ".tree2");
     assert(relu6);
 
@@ -458,14 +393,14 @@ ILayer* level5(INetworkDefinition *network, std::map<std::string, Weights>& weig
     pool1->setStrideNd(DimsHW{2, 2});
     auto pro1 = project(network, weightMap, *pool1->getOutput(0), oc1, ".project");
 
-    auto ew1 = network->addElementWise(*block1->getOutput(0), *pro1->getOutput(0), ElementWiseOperation::kSUM);
+    auto ew1 = network->addElementWise(block1->getOutput(0), pro1->getOutput(0), ElementWiseOperation::kSUM);
 
-    IActivationLayer* relu1 = network->addActivation(*ew1->getOutput(0), ActivationType::kRELU);
+    IActivationLayer* relu1 = network->addActivation(ew1->getOutput(0), ActivationType::kRELU);
 
     auto block2 = basicBlock(network, weightMap, *relu1->getOutput(0), oc2, 1, ".tree2");
-    auto ew2 = network->addElementWise(*relu1->getOutput(0), *block2->getOutput(0), ElementWiseOperation::kSUM);
-    IActivationLayer* relu2 = network->addActivation(*ew2->getOutput(0), ActivationType::kRELU);
-    ITensor* inputTensors[] = { pool1->getOutput(0), relu1->getOutput(0), relu2->getOutput(0) };
+    auto ew2 = network->addElementWise(*relu1->getOutput(0), block2->getOutput(0), ElementWiseOperation::kSUM);
+    IActivationLayer* relu2 = network->addActivation(ew2->getOutput(0), ActivationType::kRELU);
+    ITensor* inputTensors[] = { *pool1->getOutput(0), *relu1->getOutput(0), *relu2->getOutput(0) };
     auto relu3 = root(network, weightMap, inputTensors, 3, oc3, lname);
     assert(relu3);
     return relu3;
@@ -494,48 +429,88 @@ inline int read_files_in_dir(const char *p_dir_name, std::vector<std::string> &f
     return 0;
 }
 
+IPluginV2Layer* addDCNv2Layer(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, IConvolutionLayer* t0, IConvolutionLayer* t1, IConvolutionLayer* t2)
+{
+    auto creator = getPluginRegistry()->getPluginCreator("DCNv2", "001");
+
+    std::vector<float> anchors_yolo = getAnchors(weightMap);
+    PluginField pluginMultidata[4];
+    int NetData[4];
+    NetData[0] = Yolo::CLASS_NUM;
+    NetData[1] = Yolo::INPUT_W;
+    NetData[2] = Yolo::INPUT_H;
+    NetData[3] = Yolo::MAX_OUTPUT_BBOX_COUNT;
+    pluginMultidata[0].data = NetData;
+    pluginMultidata[0].length = 3;
+    pluginMultidata[0].name = "netdata";
+    pluginMultidata[0].type = PluginFieldType::kFLOAT32;
+    int scale[3] = { 8, 16, 32 };
+    int plugindata[3][8];
+    std::string names[3];
+    for (int k = 1; k < 4; k++)
+    {
+        plugindata[k - 1][0] = Yolo::INPUT_W / scale[k - 1];
+        plugindata[k - 1][1] = Yolo::INPUT_H / scale[k - 1];
+        for (int i = 2; i < 8; i++)
+        {
+            plugindata[k - 1][i] = int(anchors_yolo[(k - 1) * 6 + i - 2]);
+        }
+        pluginMultidata[k].data = plugindata[k - 1];
+        pluginMultidata[k].length = 8;
+        names[k - 1] = "yolodata" + std::to_string(k);
+        pluginMultidata[k].name = names[k - 1].c_str();
+        pluginMultidata[k].type = PluginFieldType::kFLOAT32;
+    }
+
+    PluginFieldCollection pluginData;
+    pluginData.nbFields = 11;
+    pluginData.fields = pluginMultidata;
+    IPluginV2 *pluginObj = creator->createPlugin("DCNlayer", &pluginData);
+    ITensor* inputTensors_dcn[] = { t2->getOutput(0), t1->getOutput(0), t0->getOutput(0) };
+    auto dcn = network->addPluginV2(inputTensors_dcn, 3, *pluginObj);
+    return dcn;
+}
+
 
 //example plugin layer.
-// IPluginV2Layer* addYoLoLayer(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, IConvolutionLayer* det0, IConvolutionLayer* det1, IConvolutionLayer* det2)
-// {
-//     auto creator = getPluginRegistry()->getPluginCreator("YoloLayer_TRT", "1");
-//     std::vector<float> anchors_yolo = getAnchors(weightMap);
-//     PluginField pluginMultidata[4];
-//     int NetData[4];
-//     NetData[0] = CLASS_NUM;
-//     NetData[1] = INPUT_W;
-//     NetData[2] = INPUT_H;
-//     NetData[3] = MAX_OUTPUT_BBOX_COUNT;
-//     pluginMultidata[0].data = NetData;
-//     pluginMultidata[0].length = 3;
-//     pluginMultidata[0].name = "netdata";
-//     pluginMultidata[0].type = PluginFieldType::kFLOAT32;
-//     int scale[3] = { 8, 16, 32 };
-//     int plugindata[3][8];
-//     std::string names[3];
-//     for (int k = 1; k < 4; k++)
-//     {
-//         plugindata[k - 1][0] = INPUT_W / scale[k - 1];
-//         plugindata[k - 1][1] = INPUT_H / scale[k - 1];
-//         for (int i = 2; i < 8; i++)
-//         {
-//             plugindata[k - 1][i] = int(anchors_yolo[(k - 1) * 6 + i - 2]);
-//         }
-//         pluginMultidata[k].data = plugindata[k - 1];
-//         pluginMultidata[k].length = 8;
-//         names[k - 1] = "yolodata" + std::to_string(k);
-//         pluginMultidata[k].name = names[k - 1].c_str();
-//         pluginMultidata[k].type = PluginFieldType::kFLOAT32;
-//     }
-//     PluginFieldCollection pluginData;
-//     pluginData.nbFields = 4;
-//     pluginData.fields = pluginMultidata;
-//     IPluginV2 *pluginObj = creator->createPlugin("yololayer", &pluginData);
-//     ITensor* inputTensors_yolo[] = { det2->getOutput(0), det1->getOutput(0), det0->getOutput(0) };
-//     auto yolo = network->addPluginV2(inputTensors_yolo, 3, *pluginObj);
-//     return yolo;
-// }
-
-
-#endif // DLA34_COMMON_H_
+IPluginV2Layer* addYoLoLayer(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, IConvolutionLayer* det0, IConvolutionLayer* det1, IConvolutionLayer* det2)
+{
+    auto creator = getPluginRegistry()->getPluginCreator("YoloLayer_TRT", "1");
+    std::vector<float> anchors_yolo = getAnchors(weightMap);
+    PluginField pluginMultidata[4];
+    int NetData[4];
+    NetData[0] = Yolo::CLASS_NUM;
+    NetData[1] = Yolo::INPUT_W;
+    NetData[2] = Yolo::INPUT_H;
+    NetData[3] = Yolo::MAX_OUTPUT_BBOX_COUNT;
+    pluginMultidata[0].data = NetData;
+    pluginMultidata[0].length = 3;
+    pluginMultidata[0].name = "netdata";
+    pluginMultidata[0].type = PluginFieldType::kFLOAT32;
+    int scale[3] = { 8, 16, 32 };
+    int plugindata[3][8];
+    std::string names[3];
+    for (int k = 1; k < 4; k++)
+    {
+        plugindata[k - 1][0] = Yolo::INPUT_W / scale[k - 1];
+        plugindata[k - 1][1] = Yolo::INPUT_H / scale[k - 1];
+        for (int i = 2; i < 8; i++)
+        {
+            plugindata[k - 1][i] = int(anchors_yolo[(k - 1) * 6 + i - 2]);
+        }
+        pluginMultidata[k].data = plugindata[k - 1];
+        pluginMultidata[k].length = 8;
+        names[k - 1] = "yolodata" + std::to_string(k);
+        pluginMultidata[k].name = names[k - 1].c_str();
+        pluginMultidata[k].type = PluginFieldType::kFLOAT32;
+    }
+    PluginFieldCollection pluginData;
+    pluginData.nbFields = 4;
+    pluginData.fields = pluginMultidata;
+    IPluginV2 *pluginObj = creator->createPlugin("yololayer", &pluginData);
+    ITensor* inputTensors_yolo[] = { det2->getOutput(0), det1->getOutput(0), det0->getOutput(0) };
+    auto yolo = network->addPluginV2(inputTensors_yolo, 3, *pluginObj);
+    return yolo;
+}
+#endif
 
