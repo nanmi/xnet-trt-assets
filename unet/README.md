@@ -9,7 +9,7 @@ Cuda 10.2<br>
 Python3.7<br>
 opencv 4.4<br>
 cmake 3.18<br>
-# train .pth file and convert .wts
+# .pth2onnx file and convert .wts
 
 ## create env
 
@@ -17,11 +17,40 @@ cmake 3.18<br>
 pip install -r requirements.txt
 ```
 
-## train .pth file
+## .pth file convert to .onnx model
 
 train your dataset by following [pytorch-unet](https://github.com/milesial/Pytorch-UNet) and generate .pth file.<br>
 
 Download pretrain model for:[https://github.com/milesial/Pytorch-UNet/releases/tag/v1.0](https://github.com/milesial/Pytorch-UNet/releases/tag/v1.0)
+
+## convert .onnx
+
+clone Pytorch-UNet repo and insert this python file in it,and modify some key info && run it
+
+```python
+import torch
+from unet import UNet
+
+torch_model = "models/unet_carvana_scale1_epoch5.pth"
+onnx_modle = "models/unet_carvana_scale1_epoch5.onnx"
+
+device = "cuda"
+input_size = 572
+channels = 3
+classes = 1
+
+net = UNet(n_channels=channels, n_classes=classes)
+net.to(device=device)
+net.load_state_dict(torch.load(torch_model, map_location=device))
+
+image = torch.zeros((1, channels, input_size, input_size)).cuda()
+
+torch.onnx.export(net, image, onnx_modle, opset_version=11, verbose=False, input_names=["input"], output_names=["ouput_segmentation_map"])
+
+print("[INFO] Covert to onnx model success!")
+```
+
+
 
 ## convert .wts
 
