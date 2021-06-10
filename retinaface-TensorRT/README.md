@@ -3,8 +3,6 @@
  The pytorch implementation is [biubug6/Pytorch_Retinaface](https://github.com/biubug6/Pytorch_Retinaface), I forked it into 
 [wang-xinyu/Pytorch_Retinaface](https://github.com/wang-xinyu/Pytorch_Retinaface) and add genwts.py
 
-This branch is using TensorRT 7 API, branch [trt4->retinaface](https://github.com/wang-xinyu/tensorrtx/tree/trt4/retinaface) is using TensorRT 4.
-
 ## Config
 
 - Input shape `INPUT_H`, `INPUT_W` defined in `decode.h`
@@ -66,7 +64,4 @@ python retinaface_trt.py
 <img src="https://user-images.githubusercontent.com/15235574/78901890-9077fb80-7aab-11ea-94f1-237f51fcc347.jpg">
 </p>
 
-## More Information
-
-Check the readme in [home page.](https://github.com/wang-xinyu/tensorrtx)
 
